@@ -1,0 +1,238 @@
+{
+  "name": "todo-tree-ext",
+  "displayName": "Todo Tree",
+  "description": "Muestra todos los TODOs, FIXMEs y otros comentarios en un árbol organizado con colores, filtros y navegación rápida",
+  "version": "0.1.0",
+  "publisher": "YOUR_PUBLISHER_NAME",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "todo",
+    "fixme",
+    "note",
+    "hack",
+    "xxx",
+    "comments",
+    "task",
+    "tracking",
+    "productivity"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "YOUR_REPOSITORY_URL"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "colors": [
+      {
+        "id": "todoTree.todoForeground",
+        "description": "Color para elementos TODO",
+        "defaults": {
+          "dark": "#4EC9B0",
+          "light": "#0451A5",
+          "highContrast": "#4EC9B0"
+        }
+      },
+      {
+        "id": "todoTree.fixmeForeground",
+        "description": "Color para elementos FIXME",
+        "defaults": {
+          "dark": "#F48771",
+          "light": "#A1260D",
+          "highContrast": "#F48771"
+        }
+      },
+      {
+        "id": "todoTree.noteForeground",
+        "description": "Color para elementos NOTE",
+        "defaults": {
+          "dark": "#DCDCAA",
+          "light": "#795E26",
+          "highContrast": "#DCDCAA"
+        }
+      },
+      {
+        "id": "todoTree.hackForeground",
+        "description": "Color para elementos HACK",
+        "defaults": {
+          "dark": "#CE9178",
+          "light": "#811F3F",
+          "highContrast": "#CE9178"
+        }
+      },
+      {
+        "id": "todoTree.xxxForeground",
+        "description": "Color para elementos XXX",
+        "defaults": {
+          "dark": "#F48771",
+          "light": "#A1260D",
+          "highContrast": "#F48771"
+        }
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "todo-tree",
+          "title": "Todo Tree",
+          "icon": "$(checklist)"
+        }
+      ]
+    },
+    "views": {
+      "todo-tree": [
+        {
+          "id": "todoTree",
+          "name": "Todo Tree",
+          "when": "true"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "todoTree.refresh",
+        "title": "Refrescar",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "todoTree.reveal",
+        "title": "Revelar en editor"
+      },
+      {
+        "command": "todoTree.filterByAuthor",
+        "title": "Filtrar por autor",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "todoTree.filterByType",
+        "title": "Filtrar por tipo",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "todoTree.searchText",
+        "title": "Buscar en TODOs",
+        "icon": "$(search)"
+      },
+      {
+        "command": "todoTree.nextTodo",
+        "title": "Siguiente TODO",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "todoTree.previousTodo",
+        "title": "Anterior TODO",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "todoTree.clearFilter",
+        "title": "Limpiar filtros",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "todoTree.nextTodo",
+        "key": "ctrl+alt+n",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "todoTree.previousTodo",
+        "key": "ctrl+alt+p",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "todoTree.filterByAuthor",
+          "when": "view == todoTree",
+          "group": "navigation",
+          "alt": "todoTree.clearFilter"
+        },
+        {
+          "command": "todoTree.filterByType",
+          "when": "view == todoTree",
+          "group": "navigation"
+        },
+        {
+          "command": "todoTree.searchText",
+          "when": "view == todoTree",
+          "group": "navigation"
+        },
+        {
+          "command": "todoTree.refresh",
+          "when": "view == todoTree",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "todoTree.reveal",
+          "when": "view == todoTree && viewItem == todoItem",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Todo Tree",
+      "properties": {
+        "todoTree.patterns": {
+          "type": "object",
+          "default": {
+            "TODO": {
+              "icon": "check",
+              "color": "blue"
+            },
+            "FIXME": {
+              "icon": "bug",
+              "color": "red"
+            },
+            "NOTE": {
+              "icon": "note",
+              "color": "yellow"
+            },
+            "HACK": {
+              "icon": "alert",
+              "color": "orange"
+            },
+            "XXX": {
+              "icon": "x",
+              "color": "red"
+            }
+          },
+          "description": "Patrones de búsqueda para comentarios TODO"
+        },
+        "todoTree.exclude": {
+          "type": "string",
+          "default": "**/node_modules/**,**/.git/**,**/dist/**,**/build/**",
+          "description": "Patrones de exclusión para archivos"
+        },
+        "todoTree.maxResults": {
+          "type": "number",
+          "default": 1000,
+          "description": "Número máximo de resultados a mostrar"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^4.9.4"
+  }
+}
+
