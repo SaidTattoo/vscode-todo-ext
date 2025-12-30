@@ -5,6 +5,13 @@ export class TodoTextDecorationProvider {
     private gutterDecorations: Map<string, vscode.TextEditorDecorationType> = new Map();
     private activeEditor: vscode.TextEditor | undefined;
     private disposables: vscode.Disposable[] = [];
+    
+    // Cache de contenido de documentos para evitar re-procesar si no cambió
+    private documentContentCache: Map<string, { content: string; hash: string }> = new Map();
+    
+    // Debounce timer para actualizaciones
+    private updateTimer: NodeJS.Timeout | undefined;
+    private readonly DEBOUNCE_DELAY = 150; // ms
 
     constructor() {
         this.createDecorations();
@@ -49,69 +56,119 @@ export class TodoTextDecorationProvider {
     }
 
     /**
-     * Obtiene el color por defecto para un tipo de TODO (para el SVG)
+     * Obtiene la configuración de highlight para un tipo de TODO
      */
-    private getDefaultColorForType(type: string): string {
-        const colorMap: { [key: string]: string } = {
-            'TODO': '#4EC9B0',      // Cyan/Teal
-            'FIXME': '#F48771',     // Red/Orange
-            'NOTE': '#DCDCAA',      // Yellow
-            'HACK': '#CE9178',      // Orange/Brown
-            'XXX': '#F48771'        // Red
+    private getHighlightConfig(type: string): {
+        foreground?: string;
+        background?: string;
+        iconColour?: string;
+        icon?: string;
+        gutterIcon?: boolean;
+        opacity?: number;
+    } {
+        const config = vscode.workspace.getConfiguration('todoTree');
+        const customHighlights: any = config.get('highlights.customHighlight', {});
+        const defaultHighlight: any = config.get('highlights.defaultHighlight', {});
+        
+        const typeUpper = type.toUpperCase();
+        const highlight = customHighlights[typeUpper] || customHighlights[type] || {};
+        
+        // Combinar con defaults
+        return {
+            foreground: highlight.foreground || defaultHighlight.foreground || '#000000',
+            background: highlight.background || defaultHighlight.background || '#FFFFFF',
+            iconColour: highlight.iconColour || highlight.background || defaultHighlight.iconColour || '#0000FF',
+            icon: highlight.icon || this.getDefaultIconForType(type),
+            gutterIcon: highlight.gutterIcon !== undefined ? highlight.gutterIcon : (defaultHighlight.gutterIcon !== undefined ? defaultHighlight.gutterIcon : true),
+            opacity: highlight.opacity !== undefined ? highlight.opacity : (defaultHighlight.opacity !== undefined ? defaultHighlight.opacity : 50)
         };
-        return colorMap[type.toUpperCase()] || '#808080';
     }
 
     /**
-     * Obtiene el codicon para un tipo de TODO
+     * Obtiene el icono por defecto para un tipo de TODO
      */
-    private getCodiconForType(type: string): string {
+    private getDefaultIconForType(type: string): string {
         const iconMap: { [key: string]: string } = {
             'TODO': 'check',
             'FIXME': 'bug',
             'NOTE': 'note',
             'HACK': 'alert',
-            'XXX': 'x'
+            'XXX': 'x',
+            'BUG': 'bug',
+            'USEFUL': 'note',
+            'COMMENT': 'note',
+            'LEARN': 'note',
+            'SEE NOTES': 'check',
+            'POST': 'check',
+            'RECHECK': 'check',
+            'INCOMPLETE': 'alert',
+            '[ ]': 'check',
+            '[x]': 'check'
         };
         return iconMap[type.toUpperCase()] || 'check';
+    }
+
+    /**
+     * Convierte color hex a rgba con opacidad
+     */
+    private hexToRgba(hex: string, opacity: number): string {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
     }
 
     private createDecorations(): void {
         // Limpiar decoraciones existentes
         this.disposeDecorations();
 
-        // Mapear tipo a ID de color (debe coincidir exactamente con package.json)
-        const colorIdMap: { [key: string]: string } = {
-            'TODO': 'todoTree.todoForeground',
-            'FIXME': 'todoTree.fixmeForeground',
-            'NOTE': 'todoTree.noteForeground',
-            'HACK': 'todoTree.hackForeground',
-            'XXX': 'todoTree.xxxForeground'
-        };
+        // Obtener todos los tipos configurados
+        const config = vscode.workspace.getConfiguration('todoTree');
+        const customHighlights: any = config.get('highlights.customHighlight', {});
+        const patterns: any = config.get('patterns', {});
+        
+        // Combinar tipos de patterns y customHighlights
+        const allTypes = new Set([
+            ...Object.keys(patterns),
+            ...Object.keys(customHighlights)
+        ]);
 
-        // Crear decoraciones para colorear el texto
-        Object.keys(colorIdMap).forEach(type => {
-            const colorId = colorIdMap[type];
-            const decorationType = vscode.window.createTextEditorDecorationType({
-                color: new vscode.ThemeColor(colorId),
-                fontWeight: 'normal',
+        // Crear decoraciones dinámicamente basadas en la configuración
+        allTypes.forEach(type => {
+            const highlightConfig = this.getHighlightConfig(type);
+            
+            // Crear decoración de texto con foreground y background
+            const decorationOptions: vscode.DecorationRenderOptions = {
                 rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
-            });
+            };
+
+            // Aplicar foreground (color del texto)
+            if (highlightConfig.foreground) {
+                decorationOptions.color = highlightConfig.foreground;
+            }
+
+            // Aplicar background (color de fondo) con opacidad
+            if (highlightConfig.background) {
+                const opacity = highlightConfig.opacity || 50;
+                decorationOptions.backgroundColor = this.hexToRgba(highlightConfig.background, opacity);
+            }
+
+            const decorationType = vscode.window.createTextEditorDecorationType(decorationOptions);
             this.decorations.set(type.toUpperCase(), decorationType);
-        });
 
-        // Crear decoraciones para el gutter (iconos)
-        Object.keys(colorIdMap).forEach(type => {
-            const codicon = this.getCodiconForType(type);
-            const defaultColor = this.getDefaultColorForType(type);
-            const iconUri = this.createGutterIconSvg(codicon, defaultColor);
+            // Crear decoración de gutter (iconos) si está habilitado
+            if (highlightConfig.gutterIcon !== false) {
+                const icon = highlightConfig.icon || this.getDefaultIconForType(type);
+                const iconColor = highlightConfig.iconColour || highlightConfig.background || '#0000FF';
+                const iconUri = this.createGutterIconSvg(icon, iconColor);
 
-            const gutterDecorationType = vscode.window.createTextEditorDecorationType({
-                gutterIconPath: iconUri,
-                gutterIconSize: 'contain',
-                rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
-            });
-            this.gutterDecorations.set(type.toUpperCase(), gutterDecorationType);
+                const gutterDecorationType = vscode.window.createTextEditorDecorationType({
+                    gutterIconPath: iconUri,
+                    gutterIconSize: 'contain',
+                    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
+                });
+                this.gutterDecorations.set(type.toUpperCase(), gutterDecorationType);
+            }
         });
     }
 
@@ -122,32 +179,62 @@ export class TodoTextDecorationProvider {
         this.gutterDecorations.clear();
     }
 
+    /**
+     * Calcula hash simple del contenido para detectar cambios
+     */
+    private getContentHash(content: string): string {
+        const len = content.length;
+        if (len === 0) return '0';
+        // Hash simple: longitud + primeros 100 caracteres
+        return `${len}-${content.substring(0, Math.min(100, len))}`;
+    }
+
     private setupEventListeners(): void {
         // Actualizar todas las ventanas cuando cambia el editor activo
         const onDidChangeActiveEditor = vscode.window.onDidChangeActiveTextEditor(editor => {
             this.activeEditor = editor;
-            this.updateAllEditors();
+            this.debouncedUpdateAllEditors();
         });
 
-        // Actualizar cuando cambia el contenido del documento
+        // Actualizar cuando cambia el contenido del documento con debounce
         const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
-            // Usar un pequeño delay para evitar actualizaciones excesivas mientras se escribe
-            setTimeout(() => {
-                this.updateAllEditors();
-            }, 100);
+            // Invalidar cache del documento modificado
+            this.documentContentCache.delete(event.document.uri.fsPath);
+            this.debouncedUpdateAllEditors();
         });
 
         // Actualizar cuando se abre un documento
         const onDidOpenTextDocument = vscode.workspace.onDidOpenTextDocument(() => {
-            this.updateAllEditors();
+            this.debouncedUpdateAllEditors();
         });
 
-        this.disposables.push(onDidChangeActiveEditor, onDidChangeTextDocument, onDidOpenTextDocument);
+        // Recrear decoraciones cuando cambia la configuración
+        const onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration('todoTree.highlights') || event.affectsConfiguration('todoTree.patterns')) {
+                this.createDecorations();
+                this.debouncedUpdateAllEditors();
+            }
+        });
+
+        this.disposables.push(onDidChangeActiveEditor, onDidChangeTextDocument, onDidOpenTextDocument, onDidChangeConfiguration);
 
         // Actualizar todos los editores al iniciar
         setTimeout(() => {
             this.updateAllEditors();
         }, 500);
+    }
+
+    /**
+     * Debounce para evitar actualizaciones excesivas mientras el usuario escribe
+     */
+    private debouncedUpdateAllEditors(): void {
+        if (this.updateTimer) {
+            clearTimeout(this.updateTimer);
+        }
+        this.updateTimer = setTimeout(() => {
+            this.updateAllEditors();
+            this.updateTimer = undefined;
+        }, this.DEBOUNCE_DELAY);
     }
 
     private updateAllEditors(): void {
@@ -156,8 +243,32 @@ export class TodoTextDecorationProvider {
         });
     }
 
+    /**
+     * Encuentra el inicio de un comentario en una línea
+     * Retorna la posición del inicio del comentario o -1 si no hay
+     */
+    private findCommentStart(lineText: string): number {
+        const patterns = [
+            lineText.indexOf('//'),
+            lineText.indexOf('#'),
+            lineText.indexOf('--'),
+            lineText.indexOf('/*'),
+            lineText.trim().startsWith('*') ? lineText.indexOf('*') : -1
+        ];
+        return patterns.filter(p => p >= 0).sort((a, b) => a - b)[0] ?? -1;
+    }
+
     private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
         const document = editor.document;
+        const filePath = document.uri.fsPath;
+        const text = document.getText();
+        
+        // Verificar cache: si el contenido no cambió, no re-procesar
+        const contentHash = this.getContentHash(text);
+        const cached = this.documentContentCache.get(filePath);
+        if (cached && cached.hash === contentHash) {
+            return; // Contenido sin cambios, no actualizar decoraciones
+        }
 
         // Limpiar todas las decoraciones primero (texto y gutter)
         this.decorations.forEach(decorationType => {
@@ -167,67 +278,62 @@ export class TodoTextDecorationProvider {
             editor.setDecorations(decorationType, []);
         });
 
-        const text = document.getText();
         const config = vscode.workspace.getConfiguration('todoTree');
         const patterns: any = config.get('patterns', {});
-        const patternKeys = Object.keys(patterns);
+        const customHighlights: any = config.get('highlights.customHighlight', {});
+        
+        // Combinar tipos de patterns y customHighlights
+        const allPatternKeys = new Set([
+            ...Object.keys(patterns),
+            ...Object.keys(customHighlights)
+        ]);
+        const patternKeys = Array.from(allPatternKeys);
 
         if (patternKeys.length === 0) {
+            // Actualizar cache incluso si no hay patrones
+            this.documentContentCache.set(filePath, { content: text, hash: contentHash });
             return;
         }
 
-        const regexPattern = patternKeys.map(key => key).join('|');
+        // Escapar caracteres especiales para regex (como [ ] y [x])
+        const escapedPatterns = patternKeys.map(key => {
+            // Escapar caracteres especiales de regex
+            return key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        });
+        const regexPattern = escapedPatterns.join('|');
 
-        // Mapeo de tipos a colores
-        const colorIdMap: { [key: string]: string } = {
-            'TODO': 'todoTree.todoForeground',
-            'FIXME': 'todoTree.fixmeForeground',
-            'NOTE': 'todoTree.noteForeground',
-            'HACK': 'todoTree.hackForeground',
-            'XXX': 'todoTree.xxxForeground'
-        };
-
-        // Patrones para diferentes tipos de comentarios con soporte para autor
-        const commentRegexes = [
-            // Comentarios // con autor
-            new RegExp(`//\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios // sin autor
-            new RegExp(`//\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios # con autor
-            new RegExp(`#\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios # sin autor
-            new RegExp(`#\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios -- con autor
-            new RegExp(`--\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios -- sin autor
-            new RegExp(`--\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios /* */ con autor (puede estar en una línea o multi-línea)
-            new RegExp(`/\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
-            // Comentarios /* */ sin autor (puede estar en una línea o multi-línea)
-            new RegExp(`/\\*\\s*(${regexPattern})\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
-            // Comentarios * dentro de bloques /** */ con autor
-            new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios * dentro de bloques /** */ sin autor
-            new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-        ];
+        // Regex simplificado: un solo patrón que captura todos los casos
+        // Formato: (//|#|--|/\*|\*) seguido opcionalmente de [ ] o [x], luego tipo, opcionalmente (autor), luego texto
+        const unifiedRegex = new RegExp(
+            `(//|#|--|/\\*|^\\s*\\*)\\s*(?:\\[\\s*[xX]?\\s*\\]\\s*)?(${regexPattern})(?:\\s*\\(([^\\)]+)\\))?\\s*:?\\s*(.*)`,
+            'i'
+        );
 
         const decorationsMap: Map<string, vscode.Range[]> = new Map();
         const gutterDecorationsMap: Map<string, vscode.Range[]> = new Map();
 
+        // Inicializar mapas para todos los tipos (patterns + customHighlights)
         patternKeys.forEach(key => {
-            decorationsMap.set(key.toUpperCase(), []);
-            gutterDecorationsMap.set(key.toUpperCase(), []);
+            const keyUpper = key.toUpperCase();
+            decorationsMap.set(keyUpper, []);
+            gutterDecorationsMap.set(keyUpper, []);
         });
 
         const lines = text.split(/\r?\n/);
         lines.forEach((lineText, lineIndex) => {
-            for (const regex of commentRegexes) {
-                const match = lineText.match(regex);
-                if (match && match.length >= 2) {
-                    const matchedType = match[1].toUpperCase();
-                    const type = patternKeys.find(key => key.toUpperCase() === matchedType);
+            const match = lineText.match(unifiedRegex);
+            if (match && match.length >= 3) {
+                const matchedType = match[2];
+                // Buscar el tipo exacto (case-insensitive) pero preservar el original para el mapa
+                const type = patternKeys.find(key => {
+                    const keyUpper = key.toUpperCase();
+                    const matchedUpper = matchedType.toUpperCase();
+                    return keyUpper === matchedUpper || key === matchedType;
+                });
 
-                    if (type && decorationsMap.has(type.toUpperCase())) {
+                if (type) {
+                    const typeKey = type.toUpperCase();
+                    if (decorationsMap.has(typeKey)) {
                         // Crear range para la línea completa (para el gutter)
                         const lineRange = new vscode.Range(
                             lineIndex,
@@ -235,56 +341,29 @@ export class TodoTextDecorationProvider {
                             lineIndex,
                             lineText.length
                         );
-                        gutterDecorationsMap.get(type.toUpperCase())!.push(lineRange);
+                        gutterDecorationsMap.get(typeKey)!.push(lineRange);
 
-                        // Colorear todo el comentario desde el inicio del comentario hasta el final
-                        let commentStart = -1;
-                        let rangeApplied = false;
-
-                        if (lineText.indexOf('/*') >= 0) {
-                            commentStart = lineText.indexOf('/*');
-                            // Para comentarios /* */, colorear hasta el */ o hasta el final de la línea
-                            const commentEnd = lineText.indexOf('*/', commentStart);
-                            if (commentEnd >= 0) {
-                                const range = new vscode.Range(
-                                    lineIndex,
-                                    commentStart,
-                                    lineIndex,
-                                    commentEnd + 2 // Incluir el */
-                                );
-                                decorationsMap.get(type.toUpperCase())!.push(range);
-                                rangeApplied = true;
-                            } else {
-                                // Si no hay */, colorear hasta el final de la línea
-                                const range = new vscode.Range(
-                                    lineIndex,
-                                    commentStart,
-                                    lineIndex,
-                                    lineText.length
-                                );
-                                decorationsMap.get(type.toUpperCase())!.push(range);
-                                rangeApplied = true;
+                        // Encontrar inicio del comentario y colorear desde ahí
+                        const commentStart = this.findCommentStart(lineText);
+                        if (commentStart >= 0) {
+                            let commentEnd = lineText.length;
+                            
+                            // Para comentarios /* */, buscar el cierre
+                            if (lineText.includes('/*')) {
+                                const closeIndex = lineText.indexOf('*/', commentStart);
+                                if (closeIndex >= 0) {
+                                    commentEnd = closeIndex + 2; // Incluir */
+                                }
                             }
-                        } else if (lineText.indexOf('//') >= 0) {
-                            commentStart = lineText.indexOf('//');
-                        } else if (lineText.indexOf('#') >= 0) {
-                            commentStart = lineText.indexOf('#');
-                        } else if (lineText.indexOf('--') >= 0) {
-                            commentStart = lineText.indexOf('--');
-                        } else if (lineText.trim().startsWith('*')) {
-                            commentStart = lineText.indexOf('*');
-                        }
 
-                        if (!rangeApplied && commentStart >= 0) {
                             const range = new vscode.Range(
                                 lineIndex,
                                 commentStart,
                                 lineIndex,
-                                lineText.length
+                                commentEnd
                             );
-                            decorationsMap.get(type.toUpperCase())!.push(range);
+                            decorationsMap.get(typeKey)!.push(range);
                         }
-                        break;
                     }
                 }
             }
@@ -305,10 +384,17 @@ export class TodoTextDecorationProvider {
                 editor.setDecorations(gutterDecorationType, ranges);
             }
         });
+
+        // Actualizar cache
+        this.documentContentCache.set(filePath, { content: text, hash: contentHash });
     }
 
     dispose(): void {
+        if (this.updateTimer) {
+            clearTimeout(this.updateTimer);
+        }
         this.disposeDecorations();
+        this.documentContentCache.clear();
         this.disposables.forEach(disposable => disposable.dispose());
     }
 }
