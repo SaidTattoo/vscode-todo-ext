@@ -55,7 +55,7 @@ export class TodoTextDecorationProvider {
         const colorMap: { [key: string]: string } = {
             'TODO': '#4EC9B0',      // Cyan/Teal
             'FIXME': '#F48771',     // Red/Orange
-            'NOTE': '#DCDCAA',      // Yellow
+            'NOTE': '#569CD6',      // Blue/Cyan
             'HACK': '#CE9178',      // Orange/Brown
             'XXX': '#F48771'        // Red
         };
@@ -188,27 +188,48 @@ export class TodoTextDecorationProvider {
         };
 
         // Patrones para diferentes tipos de comentarios con soporte para autor
+        // Incluye patrones para anotaciones anidadas dentro de bloques de comentarios
         const commentRegexes = [
-            // Comentarios // con autor
+            // Comentarios // con autor (al inicio)
             new RegExp(`//\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios // sin autor
+            // Comentarios // sin autor (al inicio)
             new RegExp(`//\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios # con autor
+            // Comentarios # con autor (al inicio)
             new RegExp(`#\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios # sin autor
+            // Comentarios # sin autor (al inicio)
             new RegExp(`#\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios -- con autor
+            // Comentarios -- con autor (al inicio)
             new RegExp(`--\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios -- sin autor
+            // Comentarios -- sin autor (al inicio)
             new RegExp(`--\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios /* */ con autor (puede estar en una línea o multi-línea)
+            // Comentarios /* */ con autor (al inicio)
             new RegExp(`/\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
-            // Comentarios /* */ sin autor (puede estar en una línea o multi-línea)
+            // Comentarios /* */ sin autor (al inicio)
             new RegExp(`/\\*\\s*(${regexPattern})\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
-            // Comentarios * dentro de bloques /** */ con autor
+            // Comentarios * dentro de bloques /** */ con autor (al inicio)
             new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
-            // Comentarios * dentro de bloques /** */ sin autor
+            // Comentarios * dentro de bloques /** */ sin autor (al inicio)
             new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios // con autor (cualquier posición)
+            new RegExp(`//.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios // sin autor (cualquier posición)
+            new RegExp(`//.*\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios # con autor (cualquier posición)
+            new RegExp(`#.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios # sin autor (cualquier posición)
+            new RegExp(`#.*\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios -- con autor (cualquier posición)
+            new RegExp(`--.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios -- sin autor (cualquier posición)
+            new RegExp(`--.*\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios /* */ con autor (cualquier posición)
+            new RegExp(`/\\*.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
+            // ANIDADOS: Comentarios /* */ sin autor (cualquier posición)
+            new RegExp(`/\\*.*\\b(${regexPattern})\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
+            // ANIDADOS: Comentarios * dentro de bloques /** */ con autor (cualquier posición)
+            new RegExp(`^\\s*\\*.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+            // ANIDADOS: Comentarios * dentro de bloques /** */ sin autor (cualquier posición)
+            new RegExp(`^\\s*\\*.*\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
         ];
 
         const decorationsMap: Map<string, vscode.Range[]> = new Map();
@@ -221,73 +242,80 @@ export class TodoTextDecorationProvider {
 
         const lines = text.split(/\r?\n/);
         lines.forEach((lineText, lineIndex) => {
+            // Buscar todas las anotaciones en la línea (puede haber múltiples anotaciones anidadas)
+            const foundAnnotations: Array<{type: string, matchIndex: number, matchLength: number}> = [];
+
             for (const regex of commentRegexes) {
-                const match = lineText.match(regex);
-                if (match && match.length >= 2) {
-                    const matchedType = match[1].toUpperCase();
+                let match;
+                // Usar exec con flag global para encontrar todas las coincidencias
+                const regexWithGlobal = new RegExp(regex.source, regex.flags + 'g');
+                while ((match = regexWithGlobal.exec(lineText)) !== null) {
+                    const matchedType = match[1]?.toUpperCase();
                     const type = patternKeys.find(key => key.toUpperCase() === matchedType);
 
                     if (type && decorationsMap.has(type.toUpperCase())) {
-                        // Crear range para la línea completa (para el gutter)
-                        const lineRange = new vscode.Range(
-                            lineIndex,
-                            0,
-                            lineIndex,
-                            lineText.length
-                        );
-                        gutterDecorationsMap.get(type.toUpperCase())!.push(lineRange);
-
-                        // Colorear todo el comentario desde el inicio del comentario hasta el final
-                        let commentStart = -1;
-                        let rangeApplied = false;
-
-                        if (lineText.indexOf('/*') >= 0) {
-                            commentStart = lineText.indexOf('/*');
-                            // Para comentarios /* */, colorear hasta el */ o hasta el final de la línea
-                            const commentEnd = lineText.indexOf('*/', commentStart);
-                            if (commentEnd >= 0) {
-                                const range = new vscode.Range(
-                                    lineIndex,
-                                    commentStart,
-                                    lineIndex,
-                                    commentEnd + 2 // Incluir el */
-                                );
-                                decorationsMap.get(type.toUpperCase())!.push(range);
-                                rangeApplied = true;
-                            } else {
-                                // Si no hay */, colorear hasta el final de la línea
-                                const range = new vscode.Range(
-                                    lineIndex,
-                                    commentStart,
-                                    lineIndex,
-                                    lineText.length
-                                );
-                                decorationsMap.get(type.toUpperCase())!.push(range);
-                                rangeApplied = true;
-                            }
-                        } else if (lineText.indexOf('//') >= 0) {
-                            commentStart = lineText.indexOf('//');
-                        } else if (lineText.indexOf('#') >= 0) {
-                            commentStart = lineText.indexOf('#');
-                        } else if (lineText.indexOf('--') >= 0) {
-                            commentStart = lineText.indexOf('--');
-                        } else if (lineText.trim().startsWith('*')) {
-                            commentStart = lineText.indexOf('*');
+                        // Evitar duplicados exactos
+                        const matchIndex = match.index;
+                        const matchLength = match[0].length;
+                        if (!foundAnnotations.some(a => a.type === type && a.matchIndex === matchIndex)) {
+                            foundAnnotations.push({
+                                type: type.toUpperCase(),
+                                matchIndex: matchIndex,
+                                matchLength: matchLength
+                            });
                         }
-
-                        if (!rangeApplied && commentStart >= 0) {
-                            const range = new vscode.Range(
-                                lineIndex,
-                                commentStart,
-                                lineIndex,
-                                lineText.length
-                            );
-                            decorationsMap.get(type.toUpperCase())!.push(range);
-                        }
-                        break;
                     }
                 }
             }
+
+            // Aplicar decoraciones para cada anotación encontrada
+            const processedTypes = new Set<string>();
+            foundAnnotations.forEach(annotation => {
+                const type = annotation.type;
+
+                // Crear range para la línea completa (para el gutter) - solo una vez por línea y tipo
+                if (!processedTypes.has(type)) {
+                    const lineRange = new vscode.Range(
+                        lineIndex,
+                        0,
+                        lineIndex,
+                        lineText.length
+                    );
+                    gutterDecorationsMap.get(type)!.push(lineRange);
+                    processedTypes.add(type);
+                }
+
+                // Colorear desde donde empieza la anotación hasta el final de la línea
+                let annotationStart = annotation.matchIndex;
+                let annotationEnd = annotation.matchIndex + annotation.matchLength;
+
+                // Si la anotación está dentro de un comentario, colorear desde el inicio del comentario
+                let commentStart = -1;
+                if (lineText.indexOf('//') >= 0 && annotationStart >= lineText.indexOf('//')) {
+                    commentStart = lineText.indexOf('//');
+                } else if (lineText.indexOf('#') >= 0 && annotationStart >= lineText.indexOf('#')) {
+                    commentStart = lineText.indexOf('#');
+                } else if (lineText.indexOf('--') >= 0 && annotationStart >= lineText.indexOf('--')) {
+                    commentStart = lineText.indexOf('--');
+                } else if (lineText.indexOf('/*') >= 0 && annotationStart >= lineText.indexOf('/*')) {
+                    commentStart = lineText.indexOf('/*');
+                    const commentEnd = lineText.indexOf('*/', commentStart);
+                    if (commentEnd >= 0) {
+                        annotationEnd = commentEnd + 2;
+                    }
+                } else if (lineText.trim().startsWith('*') && annotationStart >= lineText.indexOf('*')) {
+                    commentStart = lineText.indexOf('*');
+                }
+
+                const rangeStart = commentStart >= 0 ? commentStart : annotationStart;
+                const range = new vscode.Range(
+                    lineIndex,
+                    rangeStart,
+                    lineIndex,
+                    Math.max(annotationEnd, lineText.length)
+                );
+                decorationsMap.get(type)!.push(range);
+            });
         });
 
         // Aplicar decoraciones de texto a cada tipo

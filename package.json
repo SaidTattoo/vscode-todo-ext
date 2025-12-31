@@ -1,9 +1,9 @@
 {
   "name": "todo-tree-ext",
-  "displayName": "Todo Tree",
+  "displayName": "Todo comments Enhanced",
   "description": "Muestra todos los TODOs, FIXMEs y otros comentarios en un árbol organizado con colores, filtros y navegación rápida",
   "version": "0.1.0",
-  "publisher": "YOUR_PUBLISHER_NAME",
+  "publisher": "SaidRavest",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -23,10 +23,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "YOUR_REPOSITORY_URL"
+    "url": "https://github.com/SaidTattoo/vscode-todo-ext"
   },
   "license": "MIT",
-  "icon": "icon.png",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -55,9 +54,9 @@
         "id": "todoTree.noteForeground",
         "description": "Color para elementos NOTE",
         "defaults": {
-          "dark": "#DCDCAA",
-          "light": "#795E26",
-          "highContrast": "#DCDCAA"
+          "dark": "#569CD6",
+          "light": "#007ACC",
+          "highContrast": "#569CD6"
         }
       },
       {

@@ -270,12 +270,19 @@ export class TodoTreeProvider implements vscode.TreeDataProvider<TodoItem> {
                     // Buscar diferentes tipos de comentarios con soporte para autor: //TODO(author):, #TODO(author):, etc.
                     // Primero intentar con autor (debe ir primero para capturar correctamente)
                     const commentRegexesWithAuthor = [
+                        // Al inicio del comentario
                         new RegExp(`//\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
                         new RegExp(`#\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
                         new RegExp(`--\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
                         // Comentarios /* */ con autor - capturar hasta el */ o hasta el final de la línea
                         new RegExp(`/\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
                         new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                        // Anidados dentro de comentarios (cualquier posición en la línea)
+                        new RegExp(`//.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                        new RegExp(`#.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                        new RegExp(`--.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                        new RegExp(`/\\*.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
+                        new RegExp(`^\\s*\\*.*\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
                     ];
 
                     for (const regex of commentRegexesWithAuthor) {
@@ -302,17 +309,16 @@ export class TodoTreeProvider implements vscode.TreeDataProvider<TodoItem> {
 
                     // Si no se encontró con autor, buscar sin autor
                     if (!found) {
-                        const commentRegexesWithoutAuthor = [
+                        // Primero buscar al inicio del comentario
+                        const startCommentRegexes = [
                             new RegExp(`//\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
                             new RegExp(`#\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
                             new RegExp(`--\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
-                            // Comentarios /* */ - capturar hasta el */ o hasta el final de la línea
                             new RegExp(`/\\*\\s*(${regexPattern})\\s*:?\\s*(.*?)(?:\\s*\\*/)?`, 'i'),
-                            // Comentarios * dentro de bloques /** */
                             new RegExp(`^\\s*\\*\\s*(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
                         ];
 
-                        for (const regex of commentRegexesWithoutAuthor) {
+                        for (const regex of startCommentRegexes) {
                             const match = lineText.match(regex);
                             if (match && match.length >= 3) {
                                 const matchedType = match[1].toUpperCase();
@@ -326,7 +332,62 @@ export class TodoTreeProvider implements vscode.TreeDataProvider<TodoItem> {
                                         type: type,
                                         file: file
                                     });
+                                    found = true;
                                     break;
+                                }
+                            }
+                        }
+
+                        // Si no se encontró al inicio, buscar anidados (cualquier posición después del inicio del comentario)
+                        if (!found) {
+                            const nestedRegexes = [
+                                // Para líneas que empiezan con * (dentro de bloques /** */) - buscar después del *
+                                new RegExp(`^\\s*\\*\\s+.*?\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*?)(?:\\s*\\*/|$)`, 'i'),
+                                new RegExp(`^\\s*\\*\\s+.*?\\b(${regexPattern})\\s*:?\\s*(.*?)(?:\\s*\\*/|$)`, 'i'),
+                                // Para comentarios // con anotaciones en medio
+                                new RegExp(`//\\s+.*?\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                                new RegExp(`//\\s+.*?\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+                                // Para comentarios # con anotaciones en medio
+                                new RegExp(`#\\s+.*?\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                                new RegExp(`#\\s+.*?\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+                                // Para comentarios -- con anotaciones en medio
+                                new RegExp(`--\\s+.*?\\b(${regexPattern})\\s*\\(([^\\)]+)\\)\\s*:?\\s*(.*)`, 'i'),
+                                new RegExp(`--\\s+.*?\\b(${regexPattern})\\s*:?\\s*(.*)`, 'i'),
+                            ];
+
+                            for (const regex of nestedRegexes) {
+                                const match = lineText.match(regex);
+                                if (match) {
+                                    // Verificar si tiene autor (match[2] existe) o no
+                                    let matchedType: string;
+                                    let todoText: string;
+                                    let author: string | undefined;
+
+                                    if (match.length >= 4 && match[2] && !match[2].includes(':')) {
+                                        // Tiene autor
+                                        matchedType = match[1].toUpperCase();
+                                        author = match[2].trim();
+                                        todoText = (match[3] || '').trim() || 'Sin descripción';
+                                    } else if (match.length >= 3) {
+                                        // Sin autor
+                                        matchedType = match[1].toUpperCase();
+                                        todoText = (match[2] || '').trim() || 'Sin descripción';
+                                    } else {
+                                        continue;
+                                    }
+
+                                    const type = patternKeys.find(key => key.toUpperCase() === matchedType);
+                                    if (type) {
+                                        this.todos.push({
+                                            text: todoText,
+                                            line: index,
+                                            type: type,
+                                            file: file,
+                                            author: author
+                                        });
+                                        found = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
