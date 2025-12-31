@@ -27,10 +27,15 @@ export function activate(context: vscode.ExtensionContext) {
         const totalCount = todoTreeProvider.getTotalTodosCount();
 
         // Actualizar título con todos los filtros activos
+        const ageFilter = todoTreeProvider.getAgeFilter();
         const filters: string[] = [];
         if (authorFilter) filters.push(`Autor: ${authorFilter}`);
         if (typeFilter) filters.push(`Tipo: ${typeFilter}`);
         if (textSearch) filters.push(`Buscar: ${textSearch}`);
+        if (ageFilter !== 'all') {
+            const ageLabels = { critical: 'Críticos (>3m)', recent: 'Recientes (<1sem)' };
+            filters.push(ageLabels[ageFilter]);
+        }
 
         if (filters.length > 0) {
             treeView.title = `Todo Tree [${filters.join(', ')}]`;
@@ -59,6 +64,8 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(disposable);
 
     const refreshCommand = vscode.commands.registerCommand('todoTree.refresh', () => {
+        // Limpiar cache al refrescar manualmente
+        todoTreeProvider.clearCache();
         todoTreeProvider.refresh();
     });
 
@@ -149,8 +156,9 @@ export function activate(context: vscode.ExtensionContext) {
             currentPosition = { file: currentFile, line: currentLine };
         }
 
-        // Ordenar TODOs por archivo y línea
-        const sortedTodos = todos.sort((a, b) => {
+        // Los TODOs ya vienen ordenados por prioridad inteligente desde getFilteredTodos()
+        // Solo necesitamos ordenar por posición si hay múltiples archivos
+        const sortedTodos = [...todos].sort((a, b) => {
             if (a.file.fsPath !== b.file.fsPath) {
                 return a.file.fsPath.localeCompare(b.file.fsPath);
             }
@@ -193,8 +201,9 @@ export function activate(context: vscode.ExtensionContext) {
             currentPosition = { file: currentFile, line: currentLine };
         }
 
-        // Ordenar TODOs por archivo y línea
-        const sortedTodos = todos.sort((a, b) => {
+        // Los TODOs ya vienen ordenados por prioridad inteligente desde getFilteredTodos()
+        // Solo necesitamos ordenar por posición si hay múltiples archivos
+        const sortedTodos = [...todos].sort((a, b) => {
             if (a.file.fsPath !== b.file.fsPath) {
                 return a.file.fsPath.localeCompare(b.file.fsPath);
             }
@@ -269,6 +278,26 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Filtro por antigüedad
+    const filterByAgeCommand = vscode.commands.registerCommand('todoTree.filterByAge', async () => {
+        const currentFilter = todoTreeProvider.getAgeFilter();
+        const items = [
+            { label: 'Todos', value: 'all' as const },
+            { label: 'Solo Críticos (>3 meses)', value: 'critical' as const },
+            { label: 'Recientes (<1 semana)', value: 'recent' as const }
+        ];
+
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Filtrar por antigüedad',
+            canPickMany: false,
+            ignoreFocusOut: true
+        });
+
+        if (selected !== undefined) {
+            todoTreeProvider.setAgeFilter(selected.value);
+        }
+    });
+
     context.subscriptions.push(
         treeView,
         refreshCommand,
@@ -278,15 +307,60 @@ export function activate(context: vscode.ExtensionContext) {
         nextTodoCommand,
         previousTodoCommand,
         filterByTypeCommand,
-        searchTextCommand
+        searchTextCommand,
+        filterByAgeCommand
     );
+
+    // Focus automático por archivo activo
+    const onDidChangeActiveEditor = vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor) {
+            // Filtrar automáticamente por el archivo activo
+            todoTreeProvider.setActiveFileFilter(editor.document.uri.fsPath);
+        } else {
+            // Restaurar estado cuando se cierra el editor
+            todoTreeProvider.setActiveFileFilter(null);
+        }
+    });
+    context.subscriptions.push(onDidChangeActiveEditor);
+
+    // Inicializar con el editor activo actual
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+        todoTreeProvider.setActiveFileFilter(activeEditor.document.uri.fsPath);
+    }
 
     // Escanear automáticamente cuando se abren o guardan archivos
     const watcher = vscode.workspace.createFileSystemWatcher('**/*');
-    watcher.onDidChange(() => todoTreeProvider.refresh());
-    watcher.onDidCreate(() => todoTreeProvider.refresh());
-    watcher.onDidDelete(() => todoTreeProvider.refresh());
+    watcher.onDidChange((uri) => {
+        // Invalidar cache del archivo modificado
+        todoTreeProvider.invalidateFileCache(uri.fsPath);
+        todoTreeProvider.refresh();
+    });
+    watcher.onDidCreate((uri) => {
+        todoTreeProvider.refresh();
+    });
+    watcher.onDidDelete((uri) => {
+        // Limpiar cache del archivo eliminado
+        todoTreeProvider.invalidateFileCache(uri.fsPath);
+        todoTreeProvider.refresh();
+    });
     context.subscriptions.push(watcher);
+
+    // Invalidar cache cuando se guarda un documento
+    const onDidSaveDocument = vscode.workspace.onDidSaveTextDocument(document => {
+        todoTreeProvider.invalidateFileCache(document.uri.fsPath);
+        todoTreeProvider.refresh();
+    });
+    context.subscriptions.push(onDidSaveDocument);
+
+    // Escuchar cambios en la configuración (viewMode)
+    const onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('todoTree.viewMode')) {
+            // Actualizar árbol cuando cambia el modo de visualización
+            todoTreeProvider.refresh();
+        }
+    });
+    context.subscriptions.push(onDidChangeConfiguration);
 
     // Escanear inicial
     todoTreeProvider.refresh();

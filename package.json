@@ -2,7 +2,7 @@
   "name": "todo-tree-ext",
   "displayName": "Todo comments Enhanced",
   "description": "Muestra todos los TODOs, FIXMEs y otros comentarios en un árbol organizado con colores, filtros y navegación rápida",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "SaidRavest",
   "engines": {
     "vscode": "^1.74.0"
@@ -135,6 +135,11 @@
         "command": "todoTree.clearFilter",
         "title": "Limpiar filtros",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "todoTree.filterByAge",
+        "title": "Filtrar por antigüedad",
+        "icon": "$(clock)"
       }
     ],
     "keybindings": [
@@ -210,6 +215,130 @@
           },
           "description": "Patrones de búsqueda para comentarios TODO"
         },
+        "todoTree.highlights.defaultHighlight": {
+          "type": "object",
+          "default": {
+            "icon": "alert",
+            "type": "text-and-comment",
+            "foreground": "#000000",
+            "background": "#FFFFFF",
+            "opacity": 50,
+            "iconColour": "#0000FF",
+            "gutterIcon": true
+          },
+          "description": "Configuración por defecto para highlights de comentarios"
+        },
+        "todoTree.highlights.customHighlight": {
+          "type": "object",
+          "default": {
+            "TODO": {
+              "icon": "check",
+              "foreground": "#000000",
+              "background": "#FFFF00",
+              "iconColour": "#FFFF00",
+              "gutterIcon": true
+            },
+            "FIXME": {
+              "icon": "bug",
+              "foreground": "#FFFFFF",
+              "background": "#DEB887",
+              "iconColour": "#DEB887",
+              "gutterIcon": true
+            },
+            "NOTE": {
+              "icon": "note",
+              "foreground": "#FFFFFF",
+              "background": "#6495ED",
+              "iconColour": "#6495ED",
+              "gutterIcon": true
+            },
+            "HACK": {
+              "icon": "alert",
+              "foreground": "#000000",
+              "background": "#CE9178",
+              "iconColour": "#CE9178",
+              "gutterIcon": true
+            },
+            "XXX": {
+              "icon": "x",
+              "foreground": "#FFFFFF",
+              "background": "#F48771",
+              "iconColour": "#F48771",
+              "gutterIcon": true
+            },
+            "BUG": {
+              "icon": "bug",
+              "foreground": "#FFFFFF",
+              "background": "#DC143C",
+              "iconColour": "#DC143C",
+              "gutterIcon": true
+            },
+            "USEFUL": {
+              "icon": "note",
+              "foreground": "#000000",
+              "background": "#66CDAA",
+              "iconColour": "#66CDAA",
+              "gutterIcon": true
+            },
+            "COMMENT": {
+              "icon": "note",
+              "foreground": "#FFFFFF",
+              "background": "#808080",
+              "iconColour": "#808080",
+              "gutterIcon": true
+            },
+            "LEARN": {
+              "icon": "note",
+              "foreground": "#FFFFFF",
+              "background": "#FF69B4",
+              "iconColour": "#FF69B4",
+              "gutterIcon": true
+            },
+            "SEE NOTES": {
+              "icon": "check",
+              "foreground": "#FFFFFF",
+              "background": "#008080",
+              "iconColour": "#008080",
+              "gutterIcon": true
+            },
+            "POST": {
+              "icon": "check",
+              "foreground": "#FFFFFF",
+              "background": "#008000",
+              "iconColour": "#008000",
+              "gutterIcon": true
+            },
+            "RECHECK": {
+              "icon": "check",
+              "foreground": "#000000",
+              "background": "#FFA500",
+              "iconColour": "#FFA500",
+              "gutterIcon": true
+            },
+            "INCOMPLETE": {
+              "icon": "alert",
+              "foreground": "#FFFFFF",
+              "background": "#FF1493",
+              "iconColour": "#FF1493",
+              "gutterIcon": true
+            },
+            "[ ]": {
+              "icon": "check",
+              "foreground": "#000000",
+              "background": "#FFFFFF",
+              "iconColour": "#FFFF00",
+              "gutterIcon": true
+            },
+            "[x]": {
+              "icon": "check",
+              "foreground": "#FFFFFF",
+              "background": "#008000",
+              "iconColour": "#008000",
+              "gutterIcon": true
+            }
+          },
+          "description": "Configuración personalizada de highlights para cada tipo de comentario. Puedes definir foreground, background, iconColour, icon y gutterIcon para cada tipo."
+        },
         "todoTree.exclude": {
           "type": "string",
           "default": "**/node_modules/**,**/.git/**,**/dist/**,**/build/**",
@@ -219,6 +348,12 @@
           "type": "number",
           "default": 1000,
           "description": "Número máximo de resultados a mostrar"
+        },
+        "todoTree.viewMode": {
+          "type": "string",
+          "enum": ["byFile", "byAuthor"],
+          "default": "byFile",
+          "description": "Modo de visualización: 'byFile' agrupa por archivo, 'byAuthor' agrupa por autor"
         }
       }
     }
