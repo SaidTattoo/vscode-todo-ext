@@ -2,7 +2,7 @@
   "name": "todo-tree-ext",
   "displayName": "Todo comments Enhanced",
   "description": "Muestra todos los TODOs, FIXMEs y otros comentarios en un árbol organizado con colores, filtros y navegación rápida",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "SaidRavest",
   "engines": {
     "vscode": "^1.74.0"
